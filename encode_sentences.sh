@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 INPUT_DIR="/home/zxj/Documents"
 INPUT_FILE_NAME="test_data.txt"
 MODEL_ROOT="/media/zxj/sent_embedding_data"
