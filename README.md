@@ -5,6 +5,6 @@ This project contains the source code of 5 sentence embedding methods: [InferSen
 You can take a file consisting of multiple sentences as the input and get 5 different sentence embeddings file
 
 ## dependencies
-The code is written in python. Detailed dependencies despription could be found in enviroment.yml file
-use conda env create -f environment.yml  to create new environment
+The code is written in python. Detailed dependencies despription could be found in enviroment.yml 
+You can use above bash script to create new environment
 
