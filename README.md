@@ -6,5 +6,10 @@ You can take a file consisting of multiple sentences as the input and get 5 diff
 
 ## dependencies
 The code is written in python. Detailed dependencies despription could be found in enviroment.yml 
+
+~~~~
+conda env create -f environment.yml  
+~~~~
+
 You can use above bash script to create new environment
 
