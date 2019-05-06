@@ -123,9 +123,7 @@ def get_quick_thought_embedding(config_path, sentences, glove_path=None, result_
         return quick_thought_embedding
 
 
-if __name__ == '__main__':
-    args = init_argument_parser().parse_args()
-    args.use_cuda = args.use_cuda and torch.cuda.is_available()
+def main(args):
     input_path = os.path.join(args.input_dir, args.input_file_name)
     sentences = list(read_file(input_path, preprocess=lambda x: x.strip()))
 
@@ -159,9 +157,15 @@ if __name__ == '__main__':
     gen_sen_embedding = gen_sen_encoder.get_representation(sentences, tokenize=True)
 
     gen_sen_embedding_path = os.path.join(args.output_dir, "{0}_gen_sen".format(name_without_suffix))
-    np.save(gen_sen_embedding_path, skip_thought_embedding)
+    np.save(gen_sen_embedding_path, gen_sen_embedding)
 
     universal_sentence_embedding = get_universal_sent_embedding(universal_sent_encoder_url, sentences)
     universal_sentence_embedding_path = os.path.join(args.output_dir,
                                                      "{0}_universal_sentence".format(name_without_suffix))
-    np.save(universal_sentence_embedding_path, skip_thought_embedding)
+    np.save(universal_sentence_embedding_path, universal_sentence_embedding)
+
+
+if __name__ == '__main__':
+    args = init_argument_parser().parse_args()
+    args.use_cuda = args.use_cuda and torch.cuda.is_available()
+    main(args)
