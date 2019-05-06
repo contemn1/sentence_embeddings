@@ -151,7 +151,7 @@ def main(args):
                                                           batch_size=args.batch_size)
 
     quick_thought_embedding_path = os.path.join(args.output_dir, "{0}_quick_thought".format(name_without_suffix))
-    np.save(quick_thought_embedding_path, skip_thought_embedding)
+    np.save(quick_thought_embedding_path, quick_thought_embedding)
 
     gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
     gen_sen_embedding = gen_sen_encoder.get_representation(sentences, tokenize=True)
