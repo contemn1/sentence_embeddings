@@ -64,7 +64,10 @@ class EncoderManager(object):
       encoder = s2v_encoder.s2v_encoder(model_config)
       restore_model = encoder.build_graph_from_config(model_config)
 
-    sess = tf.Session(graph=g)
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+
+    sess = tf.Session(graph=g, config=config)
 
     restore_model(sess)
 
