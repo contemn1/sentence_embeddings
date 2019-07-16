@@ -6,11 +6,11 @@ import json
 import os
 import re
 
+import h5py
 import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
 import torch
-import h5py
 
 from gensen.gensen import GenSenSingle
 from infer_sent.models import InferSent
@@ -171,7 +171,7 @@ def get_quick_thought_embedding(config_path, sentences, glove_path=None, result_
         model_config = quickthought_config(config, "encode", glove_path=glove_path, result_path=result_path)
         quick_thoughts_manager = EncoderManager()
         quick_thoughts_manager.load_model(model_config)
-        quick_thought_embedding = quick_thoughts_manager.encode(sentences, batch_size=batch_size)
+        quick_thought_embedding = quick_thoughts_manager.encode(sentences, batch_size=batch_size, use_norm=False)
         return quick_thought_embedding
 
 
@@ -190,8 +190,7 @@ def main(args):
     gen_sen_embedding_list = []
     for index in range(0, len(sentence_list), args.batch_size):
         sentences_per_batch = sentence_list[index: index + args.batch_size]
-        _, state_tuple = gen_sen_encoder.get_representation(sentences_per_batch, tokenize=True)
-        gen_sen_embedding_per_batch = state_tuple[0]
+        _, gen_sen_embedding_per_batch = gen_sen_encoder.get_representation(sentences_per_batch, tokenize=True)
         gen_sen_embedding_list.append(gen_sen_embedding_per_batch)
 
     gen_sen_embedding = np.vstack(gen_sen_embedding_list)
@@ -203,25 +202,26 @@ def main(args):
     skip_thought_encoder = restore_skipthought(args.skipthought_path, args.skipthought_model_name,
                                                args.skipthought_embeddings, args.skipthought_vocab_name)
 
-    skip_thought_embedding = skip_thought_encoder.encode(sentence_list, batch_size=args.batch_size)
+    skip_thought_embedding = skip_thought_encoder.encode(sentence_list, batch_size=args.batch_size, use_norm=False)
 
-
+    universal_sentence_embedding = get_universal_sent_embedding(universal_sent_encoder_url, sentence_list)
 
     quick_thought_embedding = get_quick_thought_embedding(args.quick_thought_config_path, sentence_list,
                                                           result_path=args.quick_thought_result_path,
                                                           batch_size=args.batch_size)
+    print("Number of Nan in embeddings is {0}".format(np.isnan(quick_thought_embedding).sum()))
+    print("Number of Inf in embeddings is {0}".format(np.isinf(quick_thought_embedding).sum()))
 
-
-    universal_sentence_embedding = get_universal_sent_embedding(universal_sent_encoder_url, sentence_list)
     name_without_suffix = NAME_WITH_SUFFIX.sub("", args.input_file_name)
 
     output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
+
     with h5py.File(output_path, "w") as out_file:
         out_file.create_dataset(name="Sentences", data=sentence_list_output)
+        out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
         out_file.create_dataset(name="InferSentV2", data=infersent_embedding)
         out_file.create_dataset(name="SkipThought", data=skip_thought_embedding)
         out_file.create_dataset(name="QuickThought", data=quick_thought_embedding)
-        out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
         out_file.create_dataset(name="UniversalSentence", data=universal_sentence_embedding)
 
 

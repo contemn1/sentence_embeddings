@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-INPUT_DIR="/home/zxj/Data/multinli_1.0"
-INPUT_FILE_NAME="comparative_sentence_pairs.txt"
+INPUT_DIR="/home/zxj/Data/sentence_analogy_datasets"
+INPUT_FILE_NAME="capital-world_words.txt"
 MODEL_ROOT="/media/zxj/sent_embedding_data"
 WORD2VEC_PATH="$MODEL_ROOT/infersent/crawl-300d-2M.vec"
 INFER_SENT_MODEL_PATH="$MODEL_ROOT/infersent/infersent{0}.pkl"
