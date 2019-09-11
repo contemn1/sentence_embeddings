@@ -1,15 +1,16 @@
+import io
 import json
 import os
+import re
 import string
-
+import pickle
 import h5py
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from encode_sentences import infersent_encoder
 from io_util import output_iterator
-import io
-import re
+
 
 def output_similarity_matrix():
     dict_path = "/home/zxj/Data/multinli_1.0/word-pairs-per-category.json"
@@ -23,7 +24,6 @@ def output_similarity_matrix():
         sentence_list.append(first)
         sentence_list.append(second)
 
-    output_iterator("capital_country_sents.txt", sentence_list)
 
     model_path = "/media/zxj/sent_embedding_data/infersent/infersent2.pkl"
     word2vec_path = "/media/zxj/sent_embedding_data/infersent/crawl-300d-2M.vec"
@@ -37,18 +37,23 @@ def output_similarity_matrix():
     np.save("similarity_matrix", similarity_matix)
 
 
-def calculate_3cos_add_result(matrix):
+def calculate_3cos_add_result(matrix, use_mask=False):
     odd_cols = matrix[:, ::2]
     even_cols = matrix[:, 1::2]
     diff = (even_cols - odd_cols).T
+    if use_mask:
+        for i in range(0, diff.shape[0], 2):
+            diff[i][2 * i] = - 100
+            diff[i][2 * i + 1] = -100
+
     most_similar_sentence_list = []
     prediction_result_list = []
     for index in range(0, matrix.shape[1], 2):
         current_row = np.expand_dims(matrix[index], axis=0)
-
         new_diff = np.delete(diff, index // 2, axis=0)
         result = current_row + new_diff
-        result[:, index] = -10
+        if use_mask:
+            result[:, index] = -100
         most_similar_sentence = np.argmax(result, axis=1)
         prediction_result = (most_similar_sentence == index + 1)
         most_similar_sentence_list.append(most_similar_sentence)
@@ -62,10 +67,15 @@ def calculate_3cos_add_result(matrix):
     return most_similar_sentence_all, prediction_result_all, precision
 
 
-def calculate_3cos_mul_result(matrix):
+def calculate_3cos_mul_result(matrix, use_mask=False):
     odd_cols = matrix[:, ::2]
     even_cols = matrix[:, 1::2]
     diff = np.divide(even_cols, (odd_cols + 0.001)).T
+    if use_mask:
+        for i in range(0, diff.shape[0], 2):
+            diff[i][2 * i] = - 100
+            diff[i][2 * i + 1] = -100
+
     most_similar_sentence_list = []
     prediction_result_list = []
     for index in range(0, matrix.shape[1], 2):
@@ -106,4 +116,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    pretrained_emb = "/home/zxj/Data/"
+    pretrained_embeddings = h5py.File(pretrained_emb)
+    print (pretrained_embeddings['InferSentV1'][()])
+    print (pretrained_embeddings['InferSentV2'][()])

@@ -7,6 +7,7 @@ import os
 import re
 
 import h5py
+import nltk
 import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
@@ -25,13 +26,13 @@ NAME_WITH_SUFFIX = re.compile(r"\.[a-zA-Z0-9]+$")
 def init_argument_parser():
     parser = argparse.ArgumentParser(description="Sentence Evaluation")
 
-    parser.add_argument("--input-dir", type=str, metavar="N",
-                        default="/home/zxj/Documents",
+    parser.add_argument("--input-path", type=str, metavar="N",
+                        default="/home/zxj/Data/sentence_analogy_datasets/",
                         help="path of data directory")
 
-    parser.add_argument("--input-file-name", type=str,
-                        default="test_data.txt",
-                        help="name of input file")
+    parser.add_argument("--model-dir", type=str, metavar="N",
+                        default="/home/zxj/Data/sent_embedding_data",
+                        help="path of model root directory")
 
     parser.add_argument("--batch-size", type=int,
                         default=64,
@@ -41,20 +42,13 @@ def init_argument_parser():
                         default=True,
                         help="path of glove file")
 
-    parser.add_argument("--word2vec-path", type=str,
-                        default="/home/zxj/Data/models/crawl-300d-2M.vec",
-                        help="path of glove file")
-
-    parser.add_argument("--infer-sent-model-path", type=str,
-                        default="/home/zxj/Data/models/infersent{0}.pkl",
-                        help="path of InferSent models")
-
     parser.add_argument("--infer-sent-version", type=int,
-                        default=2,
+                        nargs="+",
+                        default=[1, 2],
                         help="path of InferSent models")
 
     parser.add_argument("--gensen-model-path", type=str,
-                        default="/home/zxj/Data/gensen_models",
+                        default="/home/zxj/Data/sent_embedding_data/gensen_models",
                         help="directory of general purpose sentence encoder model")
 
     parser.add_argument("--gensen-prefix", type=str,
@@ -62,11 +56,11 @@ def init_argument_parser():
                         help="prefix of gen sen model")
 
     parser.add_argument("--gensen_embedding", type=str,
-                        default="/media/zxj/sent_embedding_data/glove.840B.300d.h5",
+                        default="/home/zxj/Data/sent_embedding_data/glove.840B.300d.h5",
                         help="prefix of pretrained gen sen word embedding")
 
     parser.add_argument("--skipthought-path", type=str, metavar="N",
-                        default="/media/zxj/sent_embedding_data/skip_thoughts_uni_2017_02_02",
+                        default="/home/zxj/Data/sent_embedding_data/skip_thoughts_uni_2017_02_02",
                         help="path of pre-trained skip-thought vectors model")
 
     parser.add_argument("--skipthought-model-name", type=str,
@@ -86,10 +80,10 @@ def init_argument_parser():
                         help="path of config file")
 
     parser.add_argument("--quick-thought-result-path", type=str,
-                        default="/media/zxj")
+                        default="/home/zxj/Data/sent_embedding_data")
 
     parser.add_argument("--output-dir", type=str,
-                        default="/home/zxj/Data")
+                        default="/home/zxj/Data/sent_embedding_data")
 
     return parser
 
@@ -100,7 +94,6 @@ def restore_infer_sent(model_path, dict_path, version, use_cuda=False, batch_siz
                     'pool_type': 'max', 'dpout_model': 0.0, 'version': version}
     infer_sent = InferSent(params_model)
     infer_sent.load_state_dict(torch.load(model_path, map_location=device))
-
     infer_sent.set_w2v_path(dict_path)
 
     return infer_sent
@@ -123,6 +116,17 @@ def restore_gen_sen(model_folder, filename_prefix, pretrained_emb, use_cuda=True
         cuda=use_cuda
     )
     return gensen_1
+
+
+def create_gensen_list(sentence_iterator, word2id):
+    gensen_iterator = (sent for ele in sentence_iterator for sent in [(ele[0], ele[2]), (ele[1], ele[3])])
+    sentence_list = []
+    for word, sent in gensen_iterator:  # type: str
+        sent = sent.lower()
+        if word.isupper() and word.lower() not in word2id:
+            sent = re.sub(r"{0}".format(word.lower()), word, sent)
+        sentence_list.append(sent)
+    return sentence_list
 
 
 def restore_skipthought(model_dir, model_name, skipthought_embedding, skipthought_vocab):
@@ -175,54 +179,85 @@ def get_quick_thought_embedding(config_path, sentences, glove_path=None, result_
         return quick_thought_embedding
 
 
+def get_gensen_embedding(encoder, sentence_list, batch_size, tokenize=True):
+    """
+    :type encoder: GenSenSingle
+    :type sentence_list: List[str]
+    :type batch_size: int
+    :param encoder:
+    :param sentence_list:
+    :param batch_size:
+    :return:
+    """
+
+    def tokenize_func(x):
+        return nltk.word_tokenize(x) if tokenize else x.split()
+
+    gen_sen_embedding_list = []
+    task_vocab = list(set((word for sent in sentence_list for word in tokenize_func(sent))))
+    print(task_vocab)
+    encoder.vocab_expansion(task_vocab)
+
+    for index in range(0, len(sentence_list), batch_size):
+        sentences_per_batch = sentence_list[index: index + batch_size]
+        _, gen_sen_embedding_per_batch = encoder.get_representation(sentences_per_batch, tokenize=tokenize)
+        gen_sen_embedding_list.append(gen_sen_embedding_per_batch)
+
+    return np.vstack(gen_sen_embedding_list)
+
+
 def main(args):
-    input_path = os.path.join(args.input_dir, args.input_file_name)
+    input_path = args.input_path
+    input_file_name = os.path.basename(input_path)
+    name_without_suffix = NAME_WITH_SUFFIX.sub("", input_file_name)
+    output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
+    out_file = h5py.File(output_path, "w")
+
     sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
     sentence_list = [sent for arr in sentence_iterator for sent in arr]
     sentence_list_output = np.array([sent.encode("utf-8") for sent in sentence_list])
 
-    args.infer_sent_model_path = args.infer_sent_model_path.format(args.infer_sent_version)
-
-    universal_sent_encoder_url = "https://tfhub.dev/google/universal-sentence-encoder/2"
-
-    gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
-
-    gen_sen_embedding_list = []
-    for index in range(0, len(sentence_list), args.batch_size):
-        sentences_per_batch = sentence_list[index: index + args.batch_size]
-        _, gen_sen_embedding_per_batch = gen_sen_encoder.get_representation(sentences_per_batch, tokenize=True)
-        gen_sen_embedding_list.append(gen_sen_embedding_per_batch)
-
-    gen_sen_embedding = np.vstack(gen_sen_embedding_list)
-
-    infersent_embedding = infersent_encoder(args.infer_sent_model_path,
-                                            args.word2vec_path,
-                                            args.batch_size, args.use_cuda)(sentence_list)
-
+    universal_sent_encoder_d_url = "https://tfhub.dev/google/universal-sentence-encoder/2"
+    universal_sent_encoder_t_url = "https://tfhub.dev/google/universal-sentence-encoder-large/3"
     skip_thought_encoder = restore_skipthought(args.skipthought_path, args.skipthought_model_name,
                                                args.skipthought_embeddings, args.skipthought_vocab_name)
 
     skip_thought_embedding = skip_thought_encoder.encode(sentence_list, batch_size=args.batch_size, use_norm=False)
-
-    universal_sentence_embedding = get_universal_sent_embedding(universal_sent_encoder_url, sentence_list)
+    
+    out_file.create_dataset(name="SkipThought", data=skip_thought_embedding)
+    
+    universal_sentence_embedding_dan = get_universal_sent_embedding(universal_sent_encoder_d_url, sentence_list)
+    universal_sentence_embedding_t = get_universal_sent_embedding(universal_sent_encoder_t_url, sentence_list)
+    out_file.create_dataset(name="UniversalSentenceDAN", data=universal_sentence_embedding_dan)
+    out_file.create_dataset(name="UniversalSentenceTransformer", data=universal_sentence_embedding_t)
 
     quick_thought_embedding = get_quick_thought_embedding(args.quick_thought_config_path, sentence_list,
                                                           result_path=args.quick_thought_result_path,
                                                           batch_size=args.batch_size)
+    
+    out_file.create_dataset(name="QuickThought", data=quick_thought_embedding)
+
+    gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
+    gen_sen_embedding = get_gensen_embedding(gen_sen_encoder, sentence_list, args.batch_size)
+    out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
+
     print("Number of Nan in embeddings is {0}".format(np.isnan(quick_thought_embedding).sum()))
     print("Number of Inf in embeddings is {0}".format(np.isinf(quick_thought_embedding).sum()))
 
-    name_without_suffix = NAME_WITH_SUFFIX.sub("", args.input_file_name)
+    infersent_dir = os.path.join(args.model_dir, "infersent")
+    infersent_dict_name = {1: "glove.840B.300d.txt", 2: "crawl-300d-2M.vec"}
+    for version in args.infer_sent_version:
+        infersent_model_path = os.path.join(infersent_dir, "infersent{0}.pkl".format(version))
+        infersent_dict_path = os.path.join(infersent_dir, infersent_dict_name[version])
+        infersent_embedding = infersent_encoder(infersent_model_path,
+                                                infersent_dict_path,
+                                                args.batch_size,
+                                                version=version,
+                                                use_cuda=args.use_cuda)(sentence_list)
+        out_file.create_dataset(name="InferSentV{0}".format(version), data=infersent_embedding)
 
-    output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
-
-    with h5py.File(output_path, "w") as out_file:
-        out_file.create_dataset(name="Sentences", data=sentence_list_output)
-        out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
-        out_file.create_dataset(name="InferSentV2", data=infersent_embedding)
-        out_file.create_dataset(name="SkipThought", data=skip_thought_embedding)
-        out_file.create_dataset(name="QuickThought", data=quick_thought_embedding)
-        out_file.create_dataset(name="UniversalSentence", data=universal_sentence_embedding)
+    out_file.create_dataset(name="Sentences", data=sentence_list_output)
+    out_file.close()
 
 
 if __name__ == '__main__':
