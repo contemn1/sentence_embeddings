@@ -187,9 +187,13 @@ class GenSenSingle(nn.Module):
         # Read pre-trained word embedding h5 file
         print ('Loading pretrained word embeddings')
         pretrained_embeddings = h5py.File(self.pretrained_emb)
-        pretrained_embedding_matrix = pretrained_embeddings['embedding'].value
-        pretrain_vocab = \
-            pretrained_embeddings['words_flatten'].value.split('\n')
+        pretrained_embedding_matrix = pretrained_embeddings['embedding'][()]
+        pretrain_vocab = pretrained_embeddings['words_flatten'][()]
+        if isinstance(pretrain_vocab, unicode):
+            pretrain_vocab = pretrain_vocab.encode("utf-8")
+
+        pretrain_vocab = pretrain_vocab.split("\n")
+
         pretrain_word2id = {
             word: ind for ind, word in enumerate(pretrain_vocab)
         }

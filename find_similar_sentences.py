@@ -1,122 +1,104 @@
-import io
-import json
+from __future__ import print_function
+
 import os
 import re
-import string
-import pickle
+
 import h5py
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-
-from encode_sentences import infersent_encoder
-from io_util import output_iterator
-
-
-def output_similarity_matrix():
-    dict_path = "/home/zxj/Data/multinli_1.0/word-pairs-per-category.json"
-    sentence_templates = "I'm not sure if they can travel to {0}"
-    pairs_dict = json.load(open(dict_path))
-    country_dict = pairs_dict[": capital-common-countries"]
-    sentence_list = []
-    for key, value in country_dict.items():
-        first = sentence_templates.format(string.capwords(key))
-        second = sentence_templates.format(string.capwords(value))
-        sentence_list.append(first)
-        sentence_list.append(second)
-
-
-    model_path = "/media/zxj/sent_embedding_data/infersent/infersent2.pkl"
-    word2vec_path = "/media/zxj/sent_embedding_data/infersent/crawl-300d-2M.vec"
-
-    sent_encoder = infersent_encoder(model_path, word2vec_path, use_cuda=True)
-
-    sent_embeddings = sent_encoder(sentence_list)
-
-    similarity_matix = cosine_similarity(sent_embeddings)
-
-    np.save("similarity_matrix", similarity_matix)
 
 
 def calculate_3cos_add_result(matrix, use_mask=False):
     odd_cols = matrix[:, ::2]
     even_cols = matrix[:, 1::2]
     diff = (even_cols - odd_cols).T
+
     if use_mask:
         for i in range(0, diff.shape[0], 2):
             diff[i][2 * i] = - 100
             diff[i][2 * i + 1] = -100
 
-    most_similar_sentence_list = []
-    prediction_result_list = []
+    result_list = []
     for index in range(0, matrix.shape[1], 2):
         current_row = np.expand_dims(matrix[index], axis=0)
         new_diff = np.delete(diff, index // 2, axis=0)
         result = current_row + new_diff
         if use_mask:
             result[:, index] = -100
-        most_similar_sentence = np.argmax(result, axis=1)
-        prediction_result = (most_similar_sentence == index + 1)
-        most_similar_sentence_list.append(most_similar_sentence)
-        prediction_result_list.append(prediction_result)
 
-    most_similar_sentence_all = np.vstack(most_similar_sentence_list)
-    prediction_result_all = np.vstack(prediction_result_list)
-    true_positive = np.sum(prediction_result_all)
-    precision = float(true_positive) / (prediction_result_all.shape[0] * prediction_result_all.shape[1])
+        result_list.append(np.expand_dims(result, 0))
 
-    return most_similar_sentence_all, prediction_result_all, precision
+    return np.vstack(result_list)
 
 
 def calculate_3cos_mul_result(matrix, use_mask=False):
     odd_cols = matrix[:, ::2]
     even_cols = matrix[:, 1::2]
-    diff = np.divide(even_cols, (odd_cols + 0.001)).T
+    diff = np.divide(even_cols, (odd_cols + 0.00001)).T
+    print(diff.shape)
     if use_mask:
         for i in range(0, diff.shape[0], 2):
             diff[i][2 * i] = - 100
             diff[i][2 * i + 1] = -100
 
-    most_similar_sentence_list = []
-    prediction_result_list = []
+    result_list = []
     for index in range(0, matrix.shape[1], 2):
         current_row = np.expand_dims(matrix[index], axis=0)
         new_diff = np.delete(diff, index // 2, axis=0)
         result = current_row * new_diff
-        result[:, index] = -10
-        most_similar_sentence = np.argmax(result, axis=1)
-        prediction_result = (most_similar_sentence == index + 1)
-        most_similar_sentence_list.append(most_similar_sentence)
-        prediction_result_list.append(prediction_result)
+        if use_mask:
+            result[:, index] = -10
 
-    most_similar_sentence_all = np.vstack(most_similar_sentence_list)
-    prediction_result_all = np.vstack(prediction_result_list)
-    true_positive = np.sum(prediction_result_all)
-    precision = float(true_positive) / (prediction_result_all.shape[0] * prediction_result_all.shape[1])
+        result_list.append(np.expand_dims(result, 0))
 
-    return most_similar_sentence_all, prediction_result_all, precision
+    return np.vstack(result_list)
 
 
-def main():
-    file_name_list = ["currency_words_embeddings.h5"]
-    root_dir = "/media/zxj/sent_embedding_data/output"
-    key_list = [u'GenSen', u'InferSentV2', u'QuickThought', u'SkipThought', u'UniversalSentence']
-    for name in file_name_list:
-        file_path = os.path.join(root_dir, name)
-        print (name)
-        with h5py.File(file_path, "r") as file:
-            for key in key_list:
-                embeddings = file.get(key)[()]
-                similarity_matrix = cosine_similarity(embeddings)
-                similar_sentences_add, prediction_result_add, precision_add = calculate_3cos_add_result(
-                    similarity_matrix)
-                similar_sentences_mul, prediction_result_mul, precision_mul = calculate_3cos_mul_result(
-                    similarity_matrix)
-                print (similar_sentences_add)
-                print ("{0} && {1:.3f} && {2:.3f}".format(key, precision_add, precision_mul))
+def output_precision(key_list, precision_dict, category_name, title_template):
+    print("\n")
+    print("\\begin{table}")
+    print(title_template.format(category=category_name))
+    print("\\centering")
+    print("\\begin{tabular}{|l|l|l|l|l|}")
+    print("\\hline")
+    print("\t & 3CosADD Fair \t& 3CosADD  \t& 3CosMul Fair \t &3CosMul  \\\\ \\hline")
+    for key in key_list:
+        precision_add, masked_precision_add, precision_mul, masked_precision_mul = precision_dict[key_list]
+        print("{0} \t & {1:.4f} \t & {2:.4f}  \t & {3:.4f}  \t & {4:.4f} \t \\\\ \\hline".format(key, precision_add,
+                                                                                                 masked_precision_add,
+                                                                                                 precision_mul,
+                                                                                                 masked_precision_mul))
+    print("\\end{tabular}")
+    print("\\end{table}")
+
+
+def main(category_name, h5_dataset, key_list=None):
+    if not key_list:
+        key_list = [ele for ele in h5_dataset.keys() if ele != "Sentences"]
+
+    for key in key_list:
+        embeddings = h5_dataset.get(key)[()]
+        similarity_matrix = cosine_similarity(embeddings)
+        similar_sentences_add, prediction_result_add, precision_add = calculate_3cos_add_result(
+            similarity_matrix, use_mask=False)
+        masked_similar_sentences_add, masked_prediction_result_add, masked_precision_add = calculate_3cos_add_result(
+            similarity_matrix, use_mask=True)
+
+        masked_similar_sentences_mul, masked_prediction_result_mul, masked_precision_mul = calculate_3cos_mul_result(
+            similarity_matrix, use_mask=True)
+        similar_sentences_mul, prediction_result_mul, precision_mul = calculate_3cos_mul_result(
+            similarity_matrix, use_mask=False)
+        total_num = similar_sentences_add.shape[0] * similar_sentences_add.shape[1]
 
 
 if __name__ == '__main__':
-    pretrained_emb = "/home/zxj/Data/"
-    pretrained_embeddings = h5py.File(pretrained_emb)
-    print (pretrained_embeddings['InferSentV1'][()])
-    print (pretrained_embeddings['InferSentV2'][()])
+    root_dir = "/home/zxj/Data/sent_embedding_data/output"
+    file_name_list = os.listdir(root_dir)
+    title_template = "\\caption {{ Experiment Results on {category} sentence analogy pairs }}"
+    category_name_list = [re.sub(r"_pairs_embeddings.h5", "", name) for name in file_name_list]
+    for file_name, category in zip(file_name_list, category_name_list):
+        if category == "currency":
+            pretrained_embeddings = h5py.File(os.path.join(root_dir, file_name), "r")
+            category = re.sub("_", "\\_", category)
+            main(category, pretrained_embeddings)
+            print("\n")

@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+from functools import partial
 
 import h5py
 import nltk
@@ -12,13 +13,15 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_hub as hub
 import torch
+from nltk.tokenize import word_tokenize
 
 from gensen.gensen import GenSenSingle
 from infer_sent.models import InferSent
-from io_util import read_file
+from io_util import read_file, get_word_dict, get_embedding_dict
 from quick_thought.configuration import model_config as quickthought_config
 from quick_thought.encoder_manager import EncoderManager
 from skip_thoughts import encoder_manager, configuration
+from weighting_functions import get_dct_coefficient
 
 NAME_WITH_SUFFIX = re.compile(r"\.[a-zA-Z0-9]+$")
 
@@ -27,7 +30,7 @@ def init_argument_parser():
     parser = argparse.ArgumentParser(description="Sentence Evaluation")
 
     parser.add_argument("--input-path", type=str, metavar="N",
-                        default="/home/zxj/Data/sentence_analogy_datasets/",
+                        default="/home/zxj/Data/sentence_analogy_datasets/dict/capital_world_words.txt",
                         help="path of data directory")
 
     parser.add_argument("--model-dir", type=str, metavar="N",
@@ -99,6 +102,35 @@ def restore_infer_sent(model_path, dict_path, version, use_cuda=False, batch_siz
     return infer_sent
 
 
+def pad_array(array, max_length):
+    seq_length, dimension = array.shape
+    pad_length = max_length - seq_length
+    if pad_length > 0:
+        return np.concatenate((array, np.zeros((pad_length, dimension))))
+    else:
+        return array
+
+
+def get_dct_embeddings(k, word_embeddings):
+    assert len(word_embeddings.shape) == 2
+    num_words, dimension = word_embeddings.shape
+    dct_coefficients = get_dct_coefficient(k, num_words)
+    return np.expand_dims(dct_coefficients.dot(word_embeddings), axis=0)
+
+
+def weighted_word_embedding_generator(glove_path, tokenize=True, weighting_function=lambda x: np.mean(x, axis=0)):
+    def get_embedding(sentences):
+        word_dict = get_word_dict(sentences, tokenize)
+        glove_dict = get_embedding_dict(glove_path, word_dict)
+        tokenized_sentences = [word_tokenize(sent) for sent in sentences]
+        word_embeddings = [np.vstack([glove_dict[word] for word in sent if word in glove_dict])
+                           for sent in tokenized_sentences]
+        sentence_embeddings = [weighting_function(array) for array in word_embeddings]
+        return np.vstack(sentence_embeddings)
+
+    return get_embedding
+
+
 def restore_gen_sen(model_folder, filename_prefix, pretrained_emb, use_cuda=True):
     """
 
@@ -146,7 +178,7 @@ def restore_skipthought(model_dir, model_name, skipthought_embedding, skipthough
     return encoder
 
 
-def infersent_encoder(model_path, word2vec_path, batch_size=128,
+def infersent_encoder(model_path, word2vec_path, batch_size=64,
                       version=2, use_cuda=True):
     def infersent_embedding(sentences):
         model = restore_infer_sent(model_path, word2vec_path, version, use_cuda)  # InferSent
@@ -194,8 +226,7 @@ def get_gensen_embedding(encoder, sentence_list, batch_size, tokenize=True):
         return nltk.word_tokenize(x) if tokenize else x.split()
 
     gen_sen_embedding_list = []
-    task_vocab = list(set((word for sent in sentence_list for word in tokenize_func(sent))))
-    print(task_vocab)
+    task_vocab = list(set((word.encode("utf-8") for sent in sentence_list for word in tokenize_func(sent))))
     encoder.vocab_expansion(task_vocab)
 
     for index in range(0, len(sentence_list), batch_size):
@@ -206,43 +237,20 @@ def get_gensen_embedding(encoder, sentence_list, batch_size, tokenize=True):
     return np.vstack(gen_sen_embedding_list)
 
 
-def main(args):
-    input_path = args.input_path
+def get_output_path(input_path, output_dir, template='{0}_embeddings.h5'):
     input_file_name = os.path.basename(input_path)
     name_without_suffix = NAME_WITH_SUFFIX.sub("", input_file_name)
-    output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
+    return os.path.join(output_dir, template.format(name_without_suffix))
+
+
+def main(args):
+    input_path = args.input_path
+    output_path = get_output_path(input_path, args.output_dir)
     out_file = h5py.File(output_path, "w")
 
     sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
     sentence_list = [sent for arr in sentence_iterator for sent in arr]
     sentence_list_output = np.array([sent.encode("utf-8") for sent in sentence_list])
-
-    universal_sent_encoder_d_url = "https://tfhub.dev/google/universal-sentence-encoder/2"
-    universal_sent_encoder_t_url = "https://tfhub.dev/google/universal-sentence-encoder-large/3"
-    skip_thought_encoder = restore_skipthought(args.skipthought_path, args.skipthought_model_name,
-                                               args.skipthought_embeddings, args.skipthought_vocab_name)
-
-    skip_thought_embedding = skip_thought_encoder.encode(sentence_list, batch_size=args.batch_size, use_norm=False)
-    
-    out_file.create_dataset(name="SkipThought", data=skip_thought_embedding)
-    
-    universal_sentence_embedding_dan = get_universal_sent_embedding(universal_sent_encoder_d_url, sentence_list)
-    universal_sentence_embedding_t = get_universal_sent_embedding(universal_sent_encoder_t_url, sentence_list)
-    out_file.create_dataset(name="UniversalSentenceDAN", data=universal_sentence_embedding_dan)
-    out_file.create_dataset(name="UniversalSentenceTransformer", data=universal_sentence_embedding_t)
-
-    quick_thought_embedding = get_quick_thought_embedding(args.quick_thought_config_path, sentence_list,
-                                                          result_path=args.quick_thought_result_path,
-                                                          batch_size=args.batch_size)
-    
-    out_file.create_dataset(name="QuickThought", data=quick_thought_embedding)
-
-    gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
-    gen_sen_embedding = get_gensen_embedding(gen_sen_encoder, sentence_list, args.batch_size)
-    out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
-
-    print("Number of Nan in embeddings is {0}".format(np.isnan(quick_thought_embedding).sum()))
-    print("Number of Inf in embeddings is {0}".format(np.isinf(quick_thought_embedding).sum()))
 
     infersent_dir = os.path.join(args.model_dir, "infersent")
     infersent_dict_name = {1: "glove.840B.300d.txt", 2: "crawl-300d-2M.vec"}
@@ -257,10 +265,58 @@ def main(args):
         out_file.create_dataset(name="InferSentV{0}".format(version), data=infersent_embedding)
 
     out_file.create_dataset(name="Sentences", data=sentence_list_output)
+
+    universal_sent_encoder_d_url = "https://tfhub.dev/google/universal-sentence-encoder/2"
+    universal_sent_encoder_t_url = "https://tfhub.dev/google/universal-sentence-encoder-large/3"
+    skip_thought_encoder = restore_skipthought(args.skipthought_path, args.skipthought_model_name,
+                                               args.skipthought_embeddings, args.skipthought_vocab_name)
+
+    skip_thought_embedding = skip_thought_encoder.encode(sentence_list, batch_size=args.batch_size, use_norm=False)
+
+    out_file.create_dataset(name="SkipThought", data=skip_thought_embedding)
+
+    universal_sentence_embedding_dan = get_universal_sent_embedding(universal_sent_encoder_d_url, sentence_list)
+    universal_sentence_embedding_t = get_universal_sent_embedding(universal_sent_encoder_t_url, sentence_list)
+    out_file.create_dataset(name="UniversalSentenceDAN", data=universal_sentence_embedding_dan)
+    out_file.create_dataset(name="UniversalSentenceTransformer", data=universal_sentence_embedding_t)
+
+    quick_thought_embedding = get_quick_thought_embedding(args.quick_thought_config_path, sentence_list,
+                                                          result_path=args.quick_thought_result_path,
+                                                          batch_size=args.batch_size)
+
+    out_file.create_dataset(name="QuickThought", data=quick_thought_embedding)
+
+    gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
+    gen_sen_embedding = get_gensen_embedding(gen_sen_encoder, sentence_list, args.batch_size)
+    out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
     out_file.close()
+
+
+def add_dct_embedding_to_result(sentence_list, word_embedding_path, out_file):
+    weighting_func = partial(get_dct_embeddings, 7)
+    embedding_generator = weighted_word_embedding_generator(word_embedding_path, weighting_function=weighting_func)
+    sentence_embeddings = embedding_generator(sentence_list)
+    batch_size = sentence_embeddings.shape[0]
+    for idx in range(1, 8):
+        embeddings = sentence_embeddings[:, :idx].reshape(batch_size, -1)
+        embedding_name = "$c^0$" if idx == 1 else "$c^{{0:{index}}}$".format(index=idx - 1)
+        out_file.create_dataset(name=embedding_name, data=embeddings)
+
+
+def add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="GLOVE"):
+    embedding_generator = weighted_word_embedding_generator(word_embedding_path)
+    sentence_embeddings = embedding_generator(sentence_list)
+    if dataset_name not in out_file.keys():
+        out_file.create_dataset(dataset_name, data=sentence_embeddings)
 
 
 if __name__ == '__main__':
     args = init_argument_parser().parse_args()
     args.use_cuda = args.use_cuda and torch.cuda.is_available()
-    main(args)
+    input_path = args.input_path
+    output_path = get_output_path(input_path, args.output_dir)
+    sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
+    sentence_list = [sent for arr in sentence_iterator for sent in arr]
+    word_embedding_path = "/home/zxj/Data/sent_embedding_data/infersent/crawl-300d-2M.h5"
+    with h5py.File(output_path, mode="r+") as out_file:
+        add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="FastText")
