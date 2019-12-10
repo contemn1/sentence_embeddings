@@ -3,7 +3,6 @@ import torch
 from pytorch_transformers import PreTrainedTokenizer
 from torch.utils.data import Dataset
 
-
 class BertDataset(Dataset):
     def __init__(self, word_sequence, tokenizer, with_special_tokens=True,
                  max_length=128):

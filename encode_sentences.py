@@ -17,7 +17,7 @@ from nltk.tokenize import word_tokenize
 
 from gensen.gensen import GenSenSingle
 from infer_sent.models import InferSent
-from io_util import read_file, get_word_dict, get_embedding_dict
+from io_util import get_word_dict, get_embedding_dict, read_relation_analogy, read_word_based_analogy
 from quick_thought.configuration import model_config as quickthought_config
 from quick_thought.encoder_manager import EncoderManager
 from skip_thoughts import encoder_manager, configuration
@@ -243,13 +243,10 @@ def get_output_path(input_path, output_dir, template='{0}_embeddings.h5'):
     return os.path.join(output_dir, template.format(name_without_suffix))
 
 
-def main(args):
+def main(args, sentence_list):
     input_path = args.input_path
     output_path = get_output_path(input_path, args.output_dir)
     out_file = h5py.File(output_path, "w")
-
-    sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
-    sentence_list = [sent for arr in sentence_iterator for sent in arr]
     sentence_list_output = np.array([sent.encode("utf-8") for sent in sentence_list])
 
     infersent_dir = os.path.join(args.model_dir, "infersent")
@@ -310,13 +307,18 @@ def add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, 
         out_file.create_dataset(dataset_name, data=sentence_embeddings)
 
 
-if __name__ == '__main__':
-    args = init_argument_parser().parse_args()
+def add_glove_test(args, sentence_list):
     args.use_cuda = args.use_cuda and torch.cuda.is_available()
-    input_path = args.input_path
-    output_path = get_output_path(input_path, args.output_dir)
-    sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
-    sentence_list = [sent for arr in sentence_iterator for sent in arr]
+    output_path = "/home/zxj/Data/relation_based_analogy/output/entailment_analogy_embeddings.h5"
     word_embedding_path = "/home/zxj/Data/sent_embedding_data/infersent/crawl-300d-2M.h5"
     with h5py.File(output_path, mode="r+") as out_file:
-        add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="FastText")
+        add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="GLOVE-AVG")
+
+
+if __name__ == '__main__':
+    args = init_argument_parser().parse_args()
+    sentence_list = read_relation_analogy(args)
+    output_path = "/home/zxj/Data/relation_based_analogy/output/entailment_analogy_embeddings.h5"
+    word_embedding_path = "/home/zxj/Data/sent_embedding_data/infersent/crawl-300d-2M.h5"
+    with h5py.File(output_path, mode="r+") as out_file:
+        add_dct_embedding_to_result(sentence_list, word_embedding_path, out_file)

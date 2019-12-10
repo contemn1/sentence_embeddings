@@ -6,7 +6,7 @@ import sys
 
 import h5py
 
-
+import json
 def read_file(file_path, encoding="utf-8", preprocess=lambda x: x):
     try:
         with io.open(file_path, encoding=encoding) as file:
@@ -56,6 +56,26 @@ def get_word_dict(sentences, tokenize=True):
     word_dict['<s>'] = ''
     word_dict['</s>'] = ''
     return word_dict
+
+
+def read_relation_analogy(args):
+    input_path = args.input_path
+    sentence_iterator = read_file(input_path, preprocess=lambda x: json.loads(x.strip()))
+    sentence_list = []
+    for ele in sentence_iterator:
+        sentence_list.append(ele["hypothsis"])
+        sentence_list.append(ele["premise"])
+        for sent in ele["negative_candidates"]:
+            sentence_list.append(sent)
+    return sentence_list
+
+
+def read_word_based_analogy(args):
+    input_path = args.input_path
+    sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
+    sentence_list = [sent for arr in sentence_iterator for sent in arr]
+    return sentence_list
+
 
 if __name__ == '__main__':
     output_path = "/home/zxj/Data/sent_embedding_data/word_output/capital_world_words_embeddings.h5"
