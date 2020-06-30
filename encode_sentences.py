@@ -17,7 +17,7 @@ from nltk.tokenize import word_tokenize
 
 from gensen.gensen import GenSenSingle
 from infer_sent.models import InferSent
-from io_util import get_word_dict, get_embedding_dict, read_relation_analogy, read_word_based_analogy
+from io_util import read_relation_analogy
 from quick_thought.configuration import model_config as quickthought_config
 from quick_thought.encoder_manager import EncoderManager
 from skip_thoughts import encoder_manager, configuration
@@ -118,12 +118,10 @@ def get_dct_embeddings(k, word_embeddings):
     return np.expand_dims(dct_coefficients.dot(word_embeddings), axis=0)
 
 
-def weighted_word_embedding_generator(glove_path, tokenize=True, weighting_function=lambda x: np.mean(x, axis=0)):
+def weighted_word_embedding_generator(embedding_dict, tokenize=True, weighting_function=lambda x: np.mean(x, axis=0)):
     def get_embedding(sentences):
-        word_dict = get_word_dict(sentences, tokenize)
-        glove_dict = get_embedding_dict(glove_path, word_dict)
         tokenized_sentences = [word_tokenize(sent) for sent in sentences]
-        word_embeddings = [np.vstack([glove_dict[word] for word in sent if word in glove_dict])
+        word_embeddings = [np.vstack([embedding_dict[word] for word in sent if word in embedding_dict])
                            for sent in tokenized_sentences]
         sentence_embeddings = [weighting_function(array) for array in word_embeddings]
         return np.vstack(sentence_embeddings)
@@ -186,8 +184,7 @@ def infersent_encoder(model_path, word2vec_path, batch_size=64,
         if use_cuda:
             model = model.cuda()
 
-        return model.encode(sentences, bsize=batch_size, tokenize=True,
-                            verbose=False)
+        return model
 
     return infersent_embedding
 
@@ -251,15 +248,24 @@ def main(args, sentence_list):
 
     infersent_dir = os.path.join(args.model_dir, "infersent")
     infersent_dict_name = {1: "glove.840B.300d.txt", 2: "crawl-300d-2M.vec"}
+
     for version in args.infer_sent_version:
         infersent_model_path = os.path.join(infersent_dir, "infersent{0}.pkl".format(version))
         infersent_dict_path = os.path.join(infersent_dir, infersent_dict_name[version])
-        infersent_embedding = infersent_encoder(infersent_model_path,
-                                                infersent_dict_path,
-                                                args.batch_size,
-                                                version=version,
-                                                use_cuda=args.use_cuda)(sentence_list)
+        infersent_model = infersent_encoder(infersent_model_path,
+                                            infersent_dict_path,
+                                            args.batch_size,
+                                            version=version,
+                                            use_cuda=args.use_cuda)(sentence_list)
+        infersent_embedding = infersent_model.encode(sentence_list, bsize=args.batch_size, tokenize=True,
+                                                     verbose=False)
         out_file.create_dataset(name="InferSentV{0}".format(version), data=infersent_embedding)
+
+    word_embedding_dict = infersent_model.word_vec
+    add_dct_embedding_to_result(sentence_list, word_embedding_dict, out_file)
+    add_glove_embedding_to_result(sentence_list, word_embedding_dict, out_file)
+    del word_embedding_dict
+    del infersent_model
 
     out_file.create_dataset(name="Sentences", data=sentence_list_output)
 
@@ -286,12 +292,13 @@ def main(args, sentence_list):
     gen_sen_encoder = restore_gen_sen(args.gensen_model_path, args.gensen_prefix, args.gensen_embedding)
     gen_sen_embedding = get_gensen_embedding(gen_sen_encoder, sentence_list, args.batch_size)
     out_file.create_dataset(name="GenSen", data=gen_sen_embedding)
+
     out_file.close()
 
 
-def add_dct_embedding_to_result(sentence_list, word_embedding_path, out_file):
+def add_dct_embedding_to_result(sentence_list, embedding_dict, out_file):
     weighting_func = partial(get_dct_embeddings, 7)
-    embedding_generator = weighted_word_embedding_generator(word_embedding_path, weighting_function=weighting_func)
+    embedding_generator = weighted_word_embedding_generator(embedding_dict, weighting_function=weighting_func)
     sentence_embeddings = embedding_generator(sentence_list)
     batch_size = sentence_embeddings.shape[0]
     for idx in range(1, 8):
@@ -300,25 +307,14 @@ def add_dct_embedding_to_result(sentence_list, word_embedding_path, out_file):
         out_file.create_dataset(name=embedding_name, data=embeddings)
 
 
-def add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="GLOVE"):
-    embedding_generator = weighted_word_embedding_generator(word_embedding_path)
+def add_glove_embedding_to_result(sentence_list, embedding_dict, out_file, dataset_name="GLOVE"):
+    embedding_generator = weighted_word_embedding_generator(embedding_dict)
     sentence_embeddings = embedding_generator(sentence_list)
     if dataset_name not in out_file.keys():
         out_file.create_dataset(dataset_name, data=sentence_embeddings)
 
 
-def add_glove_test(args, sentence_list):
-    args.use_cuda = args.use_cuda and torch.cuda.is_available()
-    output_path = "/home/zxj/Data/relation_based_analogy/output/entailment_analogy_embeddings.h5"
-    word_embedding_path = "/home/zxj/Data/sent_embedding_data/infersent/crawl-300d-2M.h5"
-    with h5py.File(output_path, mode="r+") as out_file:
-        add_glove_embedding_to_result(sentence_list, word_embedding_path, out_file, dataset_name="GLOVE-AVG")
-
-
 if __name__ == '__main__':
     args = init_argument_parser().parse_args()
     sentence_list = read_relation_analogy(args)
-    output_path = "/home/zxj/Data/relation_based_analogy/output/entailment_analogy_embeddings.h5"
-    word_embedding_path = "/home/zxj/Data/sent_embedding_data/infersent/crawl-300d-2M.h5"
-    with h5py.File(output_path, mode="r+") as out_file:
-        add_dct_embedding_to_result(sentence_list, word_embedding_path, out_file)
+    main(args, sentence_list)

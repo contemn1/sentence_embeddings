@@ -5,12 +5,12 @@ import re
 import h5py
 import numpy as np
 import torch
-from transformers import BertTokenizer, XLNetTokenizer, RobertaTokenizer, BertModel, XLNetModel, RobertaModel
 from sentence_transformers import SentenceTransformer
 from torch.utils.data import DataLoader
+from transformers import BertTokenizer, XLNetTokenizer, RobertaTokenizer, BertModel, XLNetModel, RobertaModel
 
 from bert_dataset import BertDataset
-from io_util import read_file, read_relation_analogy, read_word_based_analogy
+from io_util import read_file, read_relation_analogy
 
 NAME_WITH_SUFFIX = re.compile(r"\.[a-zA-Z0-9]+$")
 
@@ -110,17 +110,17 @@ def get_average_pooling(embeddings, masks):
     return average_embeddings
 
 
-def main(args):
-    models = [(BertModel, BertTokenizer, ['bert-base-cased', 'bert-large-cased']),
-              (XLNetModel, XLNetTokenizer, ['xlnet-base-cased', 'xlnet-large-cased']),
-              (RobertaModel, RobertaTokenizer, ['roberta-base', 'roberta-large'])]
-
-    input_path = args.input_path
+def get_output_path(input_path):
     input_file_name = os.path.basename(input_path)
     name_without_suffix = NAME_WITH_SUFFIX.sub("", input_file_name)
     output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
-    sentence_list = read_relation_analogy(args)
-    out_file = h5py.File(output_path, "r+")
+    return output_path
+
+
+def main(args, sentence_list, out_file):
+    models = [(BertModel, BertTokenizer, ['bert-base-cased', 'bert-large-cased']),
+              (XLNetModel, XLNetTokenizer, ['xlnet-base-cased', 'xlnet-large-cased']),
+              (RobertaModel, RobertaTokenizer, ['roberta-base', 'roberta-large'])]
     for model, tokenizer, model_names in models:
         for name in model_names:
             dataset_name = "-".join([ele.upper() for ele in name.split("-")[:2]])
@@ -144,8 +144,6 @@ def main(args):
 
             out_file[cls_key] = cls_pooled_embeddings
             out_file[avg_key] = average_pooled_embeddings
-
-    out_file.close()
 
 
 def encode_words():
@@ -171,20 +169,14 @@ def encode_words():
         print(float(word_count) * 2 / len(sentence_list))
 
 
-def add_sbert_encoding():
-    input_path = args.input_path
-    input_file_name = os.path.basename(input_path)
-    name_without_suffix = NAME_WITH_SUFFIX.sub("", input_file_name)
-    output_path = os.path.join(args.output_dir, "{0}_embeddings.h5".format(name_without_suffix))
-    sentence_iterator = read_file(input_path, preprocess=lambda x: x.strip().split("\t")[-2:])
-    sentence_list = [sent for arr in sentence_iterator for sent in arr]
-    new_name_dict = {"SBERT-Base-AVG": "bert-base-nli-mean-tokens",
-                     "SBERT-Large-AVG": "bert-large-nli-mean-tokens",
-                     "SBERT-Base-CLS": "bert-base-nli-cls-token",
-                     "SBERT-Large-CLS": "bert-large-nli-cls-token",
-                     "SRoBERTa-Base-AVG": "roberta-base-nli-mean-tokens",
-                     "SRoBERTa-Large-AVG": "roberta-large-nli-mean-tokens"}
-    out_file = h5py.File(output_path, "r+")
+def add_sbert_encoding(sentence_list, out_file):
+    new_name_dict = {"SBERT-BASE-AVG": "bert-base-nli-mean-tokens",
+                     "SBERT-LARGE-AVG": "bert-large-nli-mean-tokens",
+                     "SBERT-BASE-CLS": "bert-base-nli-cls-token",
+                     "SBERT-LARGE-CLS": "bert-large-nli-cls-token",
+                     "SRoBERTa-BASE-AVG": "roberta-base-nli-mean-tokens",
+                     "SRoBERTa-LARGE-AVG": "roberta-large-nli-mean-tokens"}
+
     for output_name, model_name in new_name_dict.items():
         model = SentenceTransformer(model_name)
         embedding_list = model.encode(sentence_list, batch_size=32)
@@ -197,5 +189,8 @@ def add_sbert_encoding():
 
 if __name__ == '__main__':
     args = init_argument_parser().parse_args()
-    main(args)
-    # out_file.close()
+    sentence_list = read_relation_analogy(args)
+    output_path = get_output_path(args.input_path)
+    with h5py.File(output_path, "r+") as out_file:
+        main(args, sentence_list, out_file)
+        add_sbert_encoding(sentence_list, out_file)

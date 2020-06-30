@@ -63,7 +63,7 @@ def read_relation_analogy(args):
     sentence_iterator = read_file(input_path, preprocess=lambda x: json.loads(x.strip()))
     sentence_list = []
     for ele in sentence_iterator:
-        sentence_list.append(ele["hypothsis"])
+        sentence_list.append(ele["hypothesis"])
         sentence_list.append(ele["premise"])
         for sent in ele["negative_candidates"]:
             sentence_list.append(sent)
@@ -76,8 +76,3 @@ def read_word_based_analogy(args):
     sentence_list = [sent for arr in sentence_iterator for sent in arr]
     return sentence_list
 
-
-if __name__ == '__main__':
-    output_path = "/home/zxj/Data/sent_embedding_data/word_output/capital_world_words_embeddings.h5"
-    with h5py.File(output_path, "r") as out_file:
-        print(out_file.keys())
