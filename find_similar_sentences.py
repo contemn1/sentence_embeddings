@@ -157,7 +157,7 @@ def flatten_dict(model_dict):
     model_dict["true_positive_mul_masked"] = masked_dict["true_positive_mul"]
     model_dict["true_positive_add_masked"] = masked_dict["true_positive_add"]
 
-
+''''
 def merge_dict(*dicts):
     new_dict = defaultdict(int)
     for sub_dict in dicts:
@@ -179,7 +179,7 @@ def generate_overall_results(input_dict):
                 for key, value in all_model_dict[name].items():
                     all_model_dict[name][key] = merge_dict(model_dict[key], value)
     return all_model_dict
-
+'''
 
 class Statistics(object):
     def __init__(self, object_dict):
@@ -213,10 +213,10 @@ class Statistics(object):
 def transform_dict_items(key: str, sub_dict: dict, model_name_set: Set[str]):
     if key not in model_name_set:
         if key == "UniversalSentenceDAN":
-            key = "USE\\_D"
+            key = "USE-DAN"
 
         if key == "UniversalSentenceTransformer":
-            key = "USE\\_T"
+            key = "USE-Transformer"
 
         return key, Statistics(sub_dict)
     else:
@@ -227,12 +227,12 @@ def transform_dict_items(key: str, sub_dict: dict, model_name_set: Set[str]):
             print(all_data[0][0])
         return key, all_data[0][1]
 
-
+'''
 def overall_results_main():
     root_dir = "/home/zxj/Data/sent_embedding_data"
     file_path = os.path.join(root_dir, "precision_result_flatten.json")
     json_dict = json.load(open(file_path, mode="r"))
-    '''
+    
     semantic_cateogry = {"capital\_world", "city\_in\_state", "family", "currency", "capital\_country"}
     semantic_dict = {key: value for key, value in json_dict.items() if key in semantic_cateogry}
     syntactic_dict = {key: value for key, value in json_dict.items() if key not in semantic_cateogry}
@@ -241,16 +241,15 @@ def overall_results_main():
     semantic_path = os.path.join(root_dir, "semantic_precision_result.json")
     syntactic_path = os.path.join(root_dir, "syntactic_precision_result.json")
 
-    '''
+    
     overall_dict = generate_overall_results(json_dict)
     overall_dict_path = os.path.join(root_dir, "all_precision_result.json")
     with open(overall_dict_path, "w+") as overall_out:
         json.dump(overall_dict, overall_out)
-        '''
+        
         json.dump(semantic_overall, semantic_out)
         json.dump(syntactic_overall, syntactic_out)
-        '''
-
+'''
 
 def cos_add_metric(intra_similarity, inter_similarity, intra_diagonal):
     return inter_similarity - intra_similarity + intra_diagonal
@@ -289,7 +288,7 @@ def get_selected_element(pretrained_embeddings, key, metric):
     return selected_element
 
 
-def output_experiment_result(category_name: str, result_dict: dict):
+def get_final_result(result_dict: dict):
     new_result_dict = {}
     value_length = 0
     for key in KEY_LIST:
@@ -305,7 +304,11 @@ def output_experiment_result(category_name: str, result_dict: dict):
             current_list = accuracy_list if not current_list or current_list[0] < accuracy_list[0] else current_list
             new_result_dict[target_key] = current_list
     new_result_dict = {value.pop() if len(value) == value_length + 1 else key: value for key, value in new_result_dict.items()}
+    return new_result_dict
 
+
+def output_experiment_result(category_name: str, result_dict: dict):
+    new_result_dict = get_final_result(result_dict)
     print("\n")
     print("\\begin{table}")
     print("\\caption {{Experiment Results on {0} Sentence Analogy Pairs}}".format(category_name.capitalize()))
@@ -320,6 +323,24 @@ def output_experiment_result(category_name: str, result_dict: dict):
     print("}")
     print("\\label{table:}")
     print("\\end{table}")
+
+
+def output_experiment_result(category_name: str, result_dict: dict):
+    print("\n")
+    print("\\begin{table}")
+    print("\\caption {{Experiment Results on {0} Sentence Analogy Pairs}}".format(category_name.capitalize()))
+    print("\\centering")
+    print("\\resizebox{0.75\columnwidth}{!}{")
+    print("\\begin{tabular}{|l|l|l|}")
+    print("\\hline")
+    print("\t & 3CosADD  \t & 3CosMul  \\\\ \\hline")
+    for res_key, accuracy_list in result_dict.items():
+        print("{0} \t & {1:.4f} \t & {2:.4f} \t \t   \\\\ \\hline".format(res_key, *accuracy_list))
+    print("\\end{tabular}")
+    print("}")
+    print("\\label{table:}")
+    print("\\end{table}")
+
 
 
 def analyze_relation_based_analogy(file_path: str):
@@ -432,10 +453,37 @@ def merge_dict(dict_list):
     return all_result_dict
 
 
+def get_analysis_result(category_name_list, output_path):
+    cos_add_results = []
+    cos_mult_results = []
+    final_result = dict()
+    for category_name in category_name_list:
+        file_path = "/home/zxj/Data/relation_based_analogy/output/{0}_analogy_embeddings.h5".format(category_name)
+        result_dict = analyze_relation_based_analogy(file_path)
+        cos_add_results.append(result_dict["3CosADD"])
+        cos_mult_results.append(result_dict["3CosMul"])
+
+
+    final_result["3CosADD"] = get_final_result(merge_dict(cos_add_results))
+    final_result["3CosMul"] = get_final_result(merge_dict(cos_mult_results))
+    with open(output_path, mode="w+") as outfile:
+        json.dump(final_result, outfile)
+
+
 if __name__ == '__main__':
     category_name_list = ["entailment", "contradiction", "passivization", "sub_clause", "adjective"]
+    '''
+    cos_add_result = defaultdict(list)
+    cos_mul_result = defaultdict(list)
     for category_name in category_name_list:
         file_path = "/home/zxj/Data/relation_based_analogy/output/{0}_analogy_embeddings.h5".format(category_name)
         result_dict = calculate_relation_based_analogy(file_path)
-        result_dict = {key: [ele / value[-1] for ele in value[:-1]] for key, value in result_dict.items()}
-        output_experiment_result(category_name, result_dict)
+        for key, value in result_dict.items():
+            cos_add_result[key].append(value[0] / value[-1])
+            cos_mul_result[key].append(value[1] / value[-1])
+    cos_add_path = "/home/zxj/Data/relation_based_analogy/relation_analogy_per_category_add"
+    cos_mult_path = "/home/zxj/Data/relation_based_analogy/relation_analogy_per_category_mul"
+    with open(cos_add_path, mode="w+") as out_add, open(cos_mult_path, mode="w+") as out_mult:
+        json.dump(cos_add_result, out_add)
+        json.dump(cos_mul_result, out_mult)
+    '''
