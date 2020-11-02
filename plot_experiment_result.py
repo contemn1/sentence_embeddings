@@ -148,33 +148,27 @@ def annotate_heatmap(im, data=None, valfmt="{x:.2f}",
 
     return texts
 
-def plot_heatmap(result_dict):
+def plot_heatmap(result_dict, output_path):
     y_labels = ["Correct", "Not Negation", "Random Deletion", "Random Masking", "Span Deletion", "Word Reordering"]
-    x_labels = []
-    result_list = []
-    for label, result in result_dict.items():
-        x_labels.append(label)
-        result_list.append(result)
+    fig, ax = plt.subplots(2, figsize=(12, 9), dpi=200)
+    for idx, category_dict in enumerate(result_dict.values()):
+        x_labels = []
+        result_list = []
+        for label, result in category_dict.items():
+            x_labels.append(label)
+            result_list.append(result)
 
-    result_matrix = np.array(result_list).transpose()
-    fig, ax = plt.subplots()
-    ax.matshow(result_matrix, cmap=plt.cm.Spectral)
-    result_string = [["{:.2f}".format(ele) for ele in row] for row in result_matrix]
-    ax.set(xticks=np.arange(len(x_labels)), xticklabels=x_labels, yticks=np.arange(len(y_labels)), yticklabels=y_labels)
-    # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="left",
-             rotation_mode="anchor")
+        result_matrix = np.array(result_list).transpose()
+        im = heatmap(result_matrix, y_labels, x_labels, ax=ax[idx],
+                        cmap="YlGn")
 
-    # Loop over data dimensions and create text annotations.
-    for i in range(result_matrix.shape[0]):
-        for j in range(result_matrix.shape[1]):
-            text = ax.text(i, j, result_string[i][j],
-                           ha="center", va="center", color="w")
+        texts = annotate_heatmap(im, valfmt="{x:.2f}")
+    fig.subplots_adjust(hspace=0.4)
+    
+    plt.savefig(output_path)
 
 
-    plt.show()
-
-if __name__ == '__main__':
+def plot_category_results():
     input_path_list = ["/home/zxj/Data/relation_based_analogy/relation_analogy_per_category_add", "/home/zxj/Data/relation_based_analogy/relation_analogy_per_category_mul"]
 
     name_list = ['GLOVE', 'DCT(k=1)', 'SkipThought', 'QuickThought', 'InferSentV1', 'InferSentV2', 'GenSen', 'USE-DAN', 'USE-Transformer', 'BERT-BASE-AVG', 'BERT-LARGE-AVG', 'XLNET-BASE-AVG', 'XLNET-LARGE-AVG', 'ROBERTA-BASE-AVG', 'ROBERTA-LARGE-AVG', 'SBERT-BASE-CLS', 'SBERT-LARGE-CLS', 'SRoBERTa-BASE-AVG', 'SRoBERTa-LARGE-AVG']
@@ -186,11 +180,14 @@ if __name__ == '__main__':
     fig, ax = plt.subplots(2, figsize=(12, 9), dpi=200)
     for idx, input_path in enumerate(input_path_list):
         with open(input_path, "r") as input_file:
+            
             input_dict = json.load(input_file)
             input_dict = {ALIAS_DICT.get(key, key): value for key, value in input_dict.items()}
             input_dict = {key: input_dict[key] for key in name_list}
+            
             result_list = []
             x_labels = []
+
             for label, result in input_dict.items():
                 x_labels.append(label)
                 result_list.append(result)
@@ -200,19 +197,12 @@ if __name__ == '__main__':
 
             texts = annotate_heatmap(im, valfmt="{x:.2f}")
 
-        ''''
-        for i, result_dict in enumerate(input_dict.values()):
-            result_list = []
-            x_labels = []
-            for label, result in result_dict.items():
-                x_labels.append(label)
-                result_list.append(result)
-            result_matrix = np.array(result_list).transpose()
-            im = heatmap(result_matrix, y_labels, x_labels, ax=ax[i],
-                               cmap="YlGn")
+                    
+    plt.savefig("/home/zxj/Data/relation_based_analogy/result/relation_analogy_per_category_new")
 
-            texts = annotate_heatmap(im, valfmt="{x:.2f}")
-        '''
 
-        #plt.show()
-        plt.savefig("/home/zxj/Data/relation_based_analogy/result/relation_analogy_per_category")
+if __name__ == '__main__':
+    input_path = "/home/zxj/Data/relation_based_analogy/result/relation_analogy_error_analysis.json"
+    with open(input_path, "r") as input_file:
+        input_dict = json.load(input_file)
+        plot_heatmap(input_dict, "/home/zxj/Data/relation_based_analogy/result/relation_analogy_analysis_new.png")
