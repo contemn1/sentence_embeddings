@@ -173,7 +173,7 @@ def plot_category_results():
 
     name_list = ['GLOVE', 'DCT(k=1)', 'SkipThought', 'QuickThought', 'InferSentV1', 'InferSentV2', 'GenSen', 'USE-DAN', 'USE-Transformer', 'BERT-BASE-AVG', 'BERT-LARGE-AVG', 'XLNET-BASE-AVG', 'XLNET-LARGE-AVG', 'ROBERTA-BASE-AVG', 'ROBERTA-LARGE-AVG', 'SBERT-BASE-CLS', 'SBERT-LARGE-CLS', 'SRoBERTa-BASE-AVG', 'SRoBERTa-LARGE-AVG']
     y_labels = ["Correct", "Not Negation", "Random Deletion", "Random Masking", "Span Deletion", "Word Reordering"]
-    dataset_names = ["Entailment", "Negation", "Passivization", "Objective Clause", "Predicative Adjective Conversion"]
+    dataset_names = ["Entailment", "Negation", "Passivization", "Objective Clause", "Adj Conversion"]
     ALIAS_DICT = {"$c^0$": "DCT(k=0)", "$c^{0:1}$": "DCT(k=1)", "$c^{0:2}$": "DCT(k=2)", "$c^{0:3}$": "DCT(k=3)",
                   "$c^{0:4}$": "DCT(k=4)", "$c^{0:5}$": "DCT(k=5)", "$c^{0:6}$": "DCT(k=6)",
                   "UniversalSentenceDAN": "USE-DAN", "UniversalSentenceTransformer": "USE-Transformer"}
@@ -202,7 +202,4 @@ def plot_category_results():
 
 
 if __name__ == '__main__':
-    input_path = "/home/zxj/Data/relation_based_analogy/result/relation_analogy_error_analysis.json"
-    with open(input_path, "r") as input_file:
-        input_dict = json.load(input_file)
-        plot_heatmap(input_dict, "/home/zxj/Data/relation_based_analogy/result/relation_analogy_analysis_new.png")
+    plot_category_results()
